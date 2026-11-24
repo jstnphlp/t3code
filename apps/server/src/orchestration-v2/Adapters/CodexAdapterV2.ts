@@ -1337,6 +1337,18 @@ function codexErrorInfoCode(value: unknown): string | null {
 
 type CodexErrorInfo = CodexSchema.ServerNotification__CodexErrorInfo;
 
+// Some Codex runtimes wrap a model-capacity rejection in a generic retry/HTTP 429 error.
+// Only explicit capacity evidence may override a generic code; real usage/rate limits stay limits.
+function codexCapacityErrorCode(code: string | null, message: string | undefined): string | null {
+  if (
+    (code === null || code === "other" || code === "responseTooManyFailedAttempts") &&
+    /\bselected model is at capacity\b/i.test(message ?? "")
+  ) {
+    return "serverOverloaded";
+  }
+  return code;
+}
+
 /**
  * Retry exhaustion only says why it failed through the last attempt's HTTP
  * status. Exhaustion on 429 is a usage or rate limit, so it keeps the Limited
@@ -1366,9 +1378,10 @@ function codexUsageLimitError(
   errorInfo: CodexErrorInfo | null | undefined,
 ): boolean {
   return (
-    code === "usageLimitExceeded" ||
-    code === "rateLimitExceeded" ||
-    codexExhaustionHttpStatus(errorInfo) === 429
+    code !== "serverOverloaded" &&
+    (code === "usageLimitExceeded" ||
+      code === "rateLimitExceeded" ||
+      codexExhaustionHttpStatus(errorInfo) === 429)
   );
 }
 
@@ -5522,7 +5535,10 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
             if (context === undefined) {
               return;
             }
-            const notificationCode = codexErrorInfoCode(payload.error.codexErrorInfo);
+            const notificationCode = codexCapacityErrorCode(
+              codexErrorInfoCode(payload.error.codexErrorInfo),
+              payload.error.message,
+            );
             if (!payload.willRetry) {
               context.latestProviderFailure = {
                 nativeMessage: payload.error.message,
@@ -5553,7 +5569,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
               maxAttempts: progress?.maxAttempts ?? null,
               retryDelayMs: null,
             };
-            const code = codexErrorInfoCode(payload.error.codexErrorInfo);
+            const code = notificationCode;
             const additionalDetails = payload.error.additionalDetails?.trim();
             const failure = withCodexManagedFailure(
               makeProviderFailure({
@@ -6718,7 +6734,10 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
               const failureCode =
                 input.failureErrorInfo === undefined
                   ? undefined
-                  : codexErrorInfoCode(input.failureErrorInfo);
+                  : codexCapacityErrorCode(
+                      codexErrorInfoCode(input.failureErrorInfo),
+                      input.failureMessage,
+                    );
               const failureClass = codexTerminalFailureClass(
                 input.failureErrorInfo,
                 failureCode ?? null,
@@ -7529,7 +7548,10 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
           const code =
             terminal.failureErrorInfo == null
               ? context.latestProviderFailure?.nativeCode
-              : codexErrorInfoCode(terminal.failureErrorInfo);
+              : codexCapacityErrorCode(
+                  codexErrorInfoCode(terminal.failureErrorInfo),
+                  terminal.failureMessage,
+                );
           if (
             terminal.status !== "failed" ||
             code !== "serverOverloaded" ||
