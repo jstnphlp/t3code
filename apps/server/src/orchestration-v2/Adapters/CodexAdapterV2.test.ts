@@ -5289,6 +5289,7 @@ describe("CodexAdapterV2 post-settle continuation", () => {
   it.effect.each([
     "recover",
     "completion-only",
+    "wrapped-429",
     "exhaust",
     "stop",
     "stop-continued",
@@ -5307,7 +5308,10 @@ describe("CodexAdapterV2 post-settle continuation", () => {
       const prompt = "Continue the task.";
       const capacityError = {
         message: "Selected model is at capacity. Please try a different model.",
-        codexErrorInfo: "serverOverloaded",
+        codexErrorInfo:
+          outcome === "wrapped-429"
+            ? { responseTooManyFailedAttempts: { httpStatusCode: 429 } }
+            : "serverOverloaded",
       };
       const failureEntries = (attempt: number): Array<CodexReplay.CodexAppServerReplayEntry> => [
         {
@@ -5473,6 +5477,7 @@ describe("CodexAdapterV2 post-settle continuation", () => {
         if (outcome === "exhaust") entries.push(...failureEntries(attempt));
         if (
           outcome === "recover" ||
+          outcome === "wrapped-429" ||
           outcome === "keep-changed-tier" ||
           outcome === "completion-only" ||
           outcome === "started-first" ||
@@ -5652,6 +5657,7 @@ describe("CodexAdapterV2 post-settle continuation", () => {
       assert.equal(
         terminal?.status,
         outcome === "recover" ||
+          outcome === "wrapped-429" ||
           outcome === "keep-changed-tier" ||
           outcome === "completion-only" ||
           outcome === "steer" ||
