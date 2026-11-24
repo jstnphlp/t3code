@@ -96,7 +96,7 @@ export class CodexShadowHomeFileSystemError extends Schema.TaggedError<CodexShad
   "CodexShadowHomeFileSystemError",
   {
     ...CodexShadowHomeContext,
-    operation: Schema.Literals(["readLink", "makeDirectory", "readDirectory", "remove", "symlink"]),
+    operation: Schema.Literals(["readLink", "makeDirectory", "readDirectory", "realPath", "remove", "symlink"]),
     path: Schema.String,
     targetPath: Schema.optional(Schema.String),
     entryName: Schema.optional(Schema.String),
@@ -394,13 +394,45 @@ export const materializeCodexShadowHome = Effect.fn("materializeCodexShadowHome"
     );
 
   yield* Effect.all(
-    [
-      makeDirectory(layout.sharedHomePath),
-      makeDirectory(effectiveHomePath),
-      ...KNOWN_SHARED_DIRECTORIES.map((directory) =>
-        makeDirectory(path.join(layout.sharedHomePath, directory)),
-      ),
-    ],
+    [makeDirectory(layout.sharedHomePath), makeDirectory(effectiveHomePath)],
+    { concurrency: "unbounded" },
+  );
+
+  const realPath = (directoryPath: string) =>
+    fileSystem.realPath(directoryPath).pipe(
+      Effect.catchTags({
+        PlatformError: (cause) =>
+          new CodexShadowHomeFileSystemError({
+            sharedHomePath: layout.sharedHomePath,
+            effectiveHomePath,
+            operation: "realPath",
+            path: directoryPath,
+            cause,
+          }),
+      }),
+    );
+  const [sharedRealPath, effectiveRealPath] = yield* Effect.all([
+    realPath(layout.sharedHomePath),
+    realPath(effectiveHomePath),
+  ]);
+  // Windows aliases and directory junctions can name the same home with different strings.
+  if (path.relative(sharedRealPath, effectiveRealPath) === "") {
+    return yield* new CodexShadowHomePathConflictError({
+      sharedHomePath: layout.sharedHomePath,
+      effectiveHomePath,
+    });
+  }
+
+  yield* ensureShadowAuthIsPrivate({
+    fileSystem,
+    sharedHomePath: layout.sharedHomePath,
+    effectiveHomePath,
+  });
+
+  yield* Effect.all(
+    KNOWN_SHARED_DIRECTORIES.map((directory) =>
+      makeDirectory(path.join(layout.sharedHomePath, directory)),
+    ),
     { concurrency: "unbounded" },
   );
 
