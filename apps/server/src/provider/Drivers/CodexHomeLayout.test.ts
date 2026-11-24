@@ -331,6 +331,30 @@ it.layer(NodeServices.layer)("CodexHomeLayout", (it) => {
     );
 
     it.effect.skipIf(!symlinksSupported)(
+      "rejects a shadow home alias before changing shared entries",
+      () =>
+        Effect.gen(function* () {
+          const fileSystem = yield* FileSystem.FileSystem;
+          const path = yield* Path.Path;
+          const sharedHome = yield* makeTempDir("t3code-codex-shared-");
+          const shadowRoot = yield* makeTempDir("t3code-codex-shadow-root-");
+          const shadowHome = path.join(shadowRoot, "alias");
+          const authPath = path.join(sharedHome, "auth.json");
+          yield* writeTextFile(authPath, '{"shared":true}\n');
+          yield* fileSystem.symlink(sharedHome, shadowHome);
+          const layout = yield* resolveCodexHomeLayout(
+            decodeCodexSettings({ homePath: sharedHome, shadowHomePath: shadowHome }),
+          );
+
+          const error = yield* materializeCodexShadowHome(layout).pipe(Effect.flip);
+
+          expect(error).toBeInstanceOf(CodexShadowHomePathConflictError);
+          expect(yield* fileSystem.readFileString(authPath)).toBe('{"shared":true}\n');
+          expect(yield* fileSystem.exists(path.join(sharedHome, "sessions"))).toBe(false);
+        }),
+    );
+
+    it.effect.skipIf(!symlinksSupported)(
       "rejects shared entries that already exist in the shadow home as real files",
       () =>
         Effect.gen(function* () {
