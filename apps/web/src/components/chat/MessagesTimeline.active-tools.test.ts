@@ -3,6 +3,7 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   deriveMessagesTimelineRows,
   liveWorkEntryLabel,
+  liveWorkEntryStatusLabel,
   workEntryDisplayLabel,
 } from "./MessagesTimeline.logic";
 
@@ -97,4 +98,27 @@ describe("liveWorkEntryLabel for a command execution without a command", () => {
       expect(workEntryDisplayLabel(entry, undefined)).toBe(expected);
     },
   );
+});
+
+describe("live provider activity status", () => {
+  it("distinguishes a running command from the last completed command", () => {
+    const entry = {
+      id: "command",
+      createdAt: "2026-10-12T00:00:00Z",
+      label: "Ran command",
+      tone: "tool" as const,
+      itemType: "command_execution" as const,
+      command: "npm test",
+      toolLifecycleStatus: "completed" as const,
+    };
+    expect(liveWorkEntryStatusLabel({ ...entry, toolLifecycleStatus: "inProgress" }, undefined, true)).toBe(
+      "Running npm",
+    );
+    expect(liveWorkEntryStatusLabel(entry, undefined, true)).toContain(
+      "Last activity:",
+    );
+    expect(liveWorkEntryStatusLabel(entry, undefined, false)).not.toContain(
+      "Waiting for next update",
+    );
+  });
 });
