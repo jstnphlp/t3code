@@ -299,6 +299,20 @@ export function liveWorkEntryLabel(
   );
 }
 
+export function liveWorkEntryStatusLabel(
+  entry: WorkLogEntry,
+  workspaceRoot: string | undefined,
+  active: boolean,
+  resolve: MessageResolver = m,
+) {
+  const lastReportedTool =
+    active && entry.toolLifecycleStatus === "completed" && entry.itemType !== "reasoning";
+  const label = liveWorkEntryLabel(entry, workspaceRoot, active && !lastReportedTool, resolve);
+  return lastReportedTool
+    ? resolve(msg("Waiting for next update · Last activity: {activity}", { activity: label }))
+    : label;
+}
+
 export function workEntryIsVisibleInGroup(
   entry: WorkLogEntry,
   expandedToolGroupEntry = false,
@@ -571,6 +585,7 @@ type MessagesTimelineRowContent =
       createdAt: string | null;
       /** Replaces "Thinking" while the run has done nothing since launching children that still run. */
       label?: string;
+      lastActivityLabel?: string;
       groupId?: string;
       expanded?: boolean;
     }
@@ -2399,6 +2414,27 @@ export function deriveMessagesTimelineRows(
     !compactionOnlyRunFinished &&
     (latestToolFailed || (!hasActivityRow && !input.pendingApprovalRequestIds?.size))
   ) {
+    const lastActivity = timelineEntries.findLast(
+      (entry): entry is Extract<TimelineEntry, { kind: "work" }> =>
+        entry.kind === "work" &&
+        (entry.entry.runId == null
+          ? runlessWorkActive
+          : entry.entry.runId === unsettledRunId) &&
+        entry.entry.tone === "tool" &&
+        entry.entry.itemType !== "reasoning" &&
+        (entry.entry.toolLifecycleStatus === "completed" ||
+          entry.entry.toolLifecycleStatus === "failed") &&
+        !collapsedSupersededEntryIds.has(entry.id) &&
+        workEntryIsVisibleInGroup(entry.entry, true),
+    );
+    const lastActivityLabel =
+      lastActivity === undefined
+        ? undefined
+        : resolve(
+            msg("Waiting for next update · Last activity: {activity}", {
+              activity: liveWorkEntryLabel(lastActivity.entry, undefined, false, resolve),
+            }),
+          );
     const failedGroupAnchor = latestToolFailed ? activeWorkAnchor : undefined;
     if (failedGroupAnchor) {
       const groupId = workGroupId(failedGroupAnchor.id);
@@ -2408,6 +2444,7 @@ export function deriveMessagesTimelineRows(
         kind: "thinking",
         id: LIVE_ACTIVITY_ROW_ID,
         createdAt: input.activeTurnStartedAt ?? null,
+        ...(lastActivityLabel === undefined ? {} : { lastActivityLabel }),
         groupId,
         expanded,
       });
@@ -2425,6 +2462,7 @@ export function deriveMessagesTimelineRows(
         id: LIVE_ACTIVITY_ROW_ID,
         createdAt: input.activeTurnStartedAt ?? null,
         ...(waitingOn > 0 ? { label: waitingOnSubagentsLabel(waitingOn, resolve) } : {}),
+        ...(lastActivityLabel === undefined ? {} : { lastActivityLabel }),
       });
     }
   }
@@ -2789,7 +2827,8 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
         a.createdAt === bt.createdAt &&
         a.groupId === bt.groupId &&
         a.expanded === bt.expanded &&
-        a.label === bt.label
+        a.label === bt.label &&
+        a.lastActivityLabel === bt.lastActivityLabel
       );
     }
     case "worktree-setup":
