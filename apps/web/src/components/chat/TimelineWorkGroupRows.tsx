@@ -22,7 +22,7 @@ import { Minimize2Icon, XIcon } from "lucide-react";
 import { Button } from "../ui/button";
 import { getVirtualizedScrollFadeClassName } from "../ui/scroll-area";
 import {
-  liveWorkEntryLabel,
+  liveWorkEntryStatusLabel,
   resolveWorkGroupScrollIndex,
   shouldFollowWorkGroupAppend,
   workEntryIsVisibleInGroup,
@@ -460,7 +460,8 @@ export function ThinkingTimelineRow({ row }: { row: Extract<TimelineRow, { kind:
         (providerStartingLabel === null ? null : m(providerStartingLabel)) ??
         row.label ??
         liveAnswerPreview ??
-        gt("Thinking")
+        row.lastActivityLabel ??
+        gt("Waiting for provider update")
       }
       iconName="brain"
       iconNode={
@@ -620,7 +621,7 @@ export function LiveWorkEntryTimelineRow({
   const gt = useGT();
   const m = useMessages();
   const threadTarget = useThreadReadTarget(row.entry, ctx.activeThreadEnvironmentId);
-  const label = liveWorkEntryLabel(row.entry, ctx.workspaceRoot, row.active, m);
+  const label = liveWorkEntryStatusLabel(row.entry, ctx.workspaceRoot, row.active, m);
   const threadLabel = threadReadLabel(label, row.entry, threadTarget, m);
 
   const item = row.entry.projectedItem?.item;
